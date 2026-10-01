@@ -37,15 +37,20 @@
 #include "Core/Boot/Boot.h"
 #include "Core/BootManager.h"
 #include "Core/CommonTitles.h"
+#include "Core/Config/MainSettings.h"
+#include "Core/Config/WiimoteSettings.h"
 #include "Core/ConfigLoaders/GameConfigLoader.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/DolphinAnalytics.h"
 #include "Core/HW/DVD/DVDInterface.h"
 #include "Core/HW/ProcessorInterface.h"
+#include "Core/HW/SI/SI.h"
+#include "Core/HW/SI/SI_Device.h"
 #include "Core/HW/Wiimote.h"
 #include "Core/HW/WiimoteReal/WiimoteReal.h"
 #include "Core/Host.h"
+#include "Core/Movie.h"
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/State.h"
@@ -643,6 +648,178 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_RunSystemMen
                                                                                   jclass)
 {
   Run(env, std::make_unique<BootParameters>(BootParameters::NANDTitle{Titles::SYSTEM_MENU}), false);
+}
+
+JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_RunMovie(
+    JNIEnv* env, jclass, jobjectArray jPaths, jboolean jRiivolution, jstring jMoviePath)
+{
+  auto& system = Core::System::GetInstance();
+  auto& movie = system.GetMovie();
+  if (!movie.IsReadOnly())
+    movie.SetReadOnly(true);
+
+  const std::string movie_path = GetJString(env, jMoviePath);
+  std::optional<std::string> savestate_path;
+  if (movie.PlayInput(movie_path, &savestate_path))
+  {
+    Run(env, JStringArrayToVector(env, jPaths), jRiivolution,
+        BootSessionData(std::move(savestate_path), DeleteSavestateAfterBoot::No));
+  }
+  else
+  {
+    // Run() is what normally clears s_is_booting. If we don't clear it here, SurfaceDestroyed
+    // (called on the UI thread when the activity finishes) will spin forever and cause an ANR.
+    s_is_booting.Clear();
+    env->CallStaticVoidMethod(IDCache::GetNativeLibraryClass(), IDCache::GetDisplayToastMsg(),
+                              ToJString(env, "Failed to load movie recording"), JNI_TRUE);
+    env->CallStaticVoidMethod(IDCache::GetNativeLibraryClass(),
+                              IDCache::GetFinishEmulationActivity());
+  }
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_dolphinemu_dolphinemu_NativeLibrary_StartRecordingMovie(JNIEnv* env, jclass)
+{
+  auto& system = Core::System::GetInstance();
+  auto& movie = system.GetMovie();
+  if (Core::GetState(system) == Core::State::Starting ||
+      Core::GetState(system) == Core::State::Stopping || movie.IsRecordingInput() ||
+      movie.IsPlayingInput())
+  {
+    return JNI_FALSE;
+  }
+
+  if (movie.IsReadOnly())
+  {
+    movie.SetReadOnly(false);
+  }
+
+  Movie::ControllerTypeArray controllers{};
+  Movie::WiimoteEnabledArray wiimotes{};
+
+  for (int i = 0; i < 4; i++)
+  {
+    const SerialInterface::SIDevices si_device = Config::Get(Config::GetInfoForSIDevice(i));
+    if (si_device == SerialInterface::SIDEVICE_GC_GBA_EMULATED)
+      controllers[i] = Movie::ControllerType::GBA;
+    else if (SerialInterface::SIDevice_IsGCController(si_device))
+      controllers[i] = Movie::ControllerType::GC;
+    else
+      controllers[i] = Movie::ControllerType::None;
+    wiimotes[i] = Config::Get(Config::GetInfoForWiimoteSource(i)) != WiimoteSource::None;
+  }
+
+  return movie.BeginRecordingInput(controllers, wiimotes) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_org_dolphinemu_dolphinemu_NativeLibrary_StopRecordingMovie(JNIEnv* env, jclass, jstring jPath)
+{
+  auto& system = Core::System::GetInstance();
+  auto& movie = system.GetMovie();
+  if (movie.IsRecordingInput())
+  {
+    const std::string path = GetJString(env, jPath);
+    File::CreateFullPath(path);
+    const Core::CPUThreadGuard guard(system);
+    movie.SaveRecording(path);
+  }
+  if (movie.IsMovieActive())
+  {
+    movie.EndPlayInput(false);
+  }
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_dolphinemu_dolphinemu_NativeLibrary_IsRecordingMovie(JNIEnv*, jclass)
+{
+  return Core::System::GetInstance().GetMovie().IsRecordingInput() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_dolphinemu_dolphinemu_NativeLibrary_IsPlayingMovie(JNIEnv*, jclass)
+{
+  return Core::System::GetInstance().GetMovie().IsPlayingInput() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_dolphinemu_dolphinemu_NativeLibrary_IsMovieActive(JNIEnv*, jclass)
+{
+  return Core::System::GetInstance().GetMovie().IsMovieActive() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_org_dolphinemu_dolphinemu_NativeLibrary_StopMovie(JNIEnv*, jclass)
+{
+  auto& movie = Core::System::GetInstance().GetMovie();
+  if (movie.IsMovieActive())
+  {
+    movie.EndPlayInput(false);
+  }
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_dolphinemu_dolphinemu_NativeLibrary_PlayMovie(JNIEnv* env, jclass, jstring jPath)
+{
+  auto& system = Core::System::GetInstance();
+  auto& movie = system.GetMovie();
+  if (movie.IsMovieActive())
+    movie.EndPlayInput(false);
+
+  movie.SetReadOnly(true);
+
+  const std::string path = GetJString(env, jPath);
+  std::optional<std::string> savestate_path;
+  if (!movie.PlayInput(path, &savestate_path))
+    return JNI_FALSE;
+
+  if (savestate_path)
+  {
+    State::LoadAs(system, *savestate_path);
+  }
+  return JNI_TRUE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_org_dolphinemu_dolphinemu_NativeLibrary_GetMovieGameID(JNIEnv* env, jclass, jstring jPath)
+{
+  const std::string path = GetJString(env, jPath);
+  File::IOFile file(path, "rb");
+  if (!file.IsOpen())
+    return nullptr;
+
+  Movie::DTMHeader header;
+  if (!file.ReadArray(&header, 1))
+    return nullptr;
+
+  if (header.filetype[0] != 'D' || header.filetype[1] != 'T' || header.filetype[2] != 'M' ||
+      header.filetype[3] != 0x1A)
+  {
+    return nullptr;
+  }
+
+  return ToJString(env, header.GetGameID());
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_dolphinemu_dolphinemu_NativeLibrary_IsMovieFromSavestate(JNIEnv* env, jclass, jstring jPath)
+{
+  const std::string path = GetJString(env, jPath);
+  File::IOFile file(path, "rb");
+  if (!file.IsOpen())
+    return JNI_FALSE;
+
+  Movie::DTMHeader header;
+  if (!file.ReadArray(&header, 1))
+    return JNI_FALSE;
+
+  if (header.filetype[0] != 'D' || header.filetype[1] != 'T' || header.filetype[2] != 'M' ||
+      header.filetype[3] != 0x1A)
+  {
+    return JNI_FALSE;
+  }
+
+  return header.bFromSaveState ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_ChangeDisc(JNIEnv* env, jclass,

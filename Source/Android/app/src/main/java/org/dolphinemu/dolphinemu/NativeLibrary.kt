@@ -342,6 +342,36 @@ object NativeLibrary {
     @JvmStatic
     external fun RunSystemMenu()
 
+    @JvmStatic
+    external fun RunMovie(path: Array<String>, riivolution: Boolean, moviePath: String)
+
+    @JvmStatic
+    external fun StartRecordingMovie(): Boolean
+
+    @JvmStatic
+    external fun StopRecordingMovie(path: String)
+
+    @JvmStatic
+    external fun IsRecordingMovie(): Boolean
+
+    @JvmStatic
+    external fun IsPlayingMovie(): Boolean
+
+    @JvmStatic
+    external fun IsMovieActive(): Boolean
+
+    @JvmStatic
+    external fun StopMovie()
+
+    @JvmStatic
+    external fun PlayMovie(path: String): Boolean
+
+    @JvmStatic
+    external fun GetMovieGameID(path: String): String?
+
+    @JvmStatic
+    external fun IsMovieFromSavestate(path: String): Boolean
+
     /**
      * Begins emulation for a netplay session, using the BootSessionData provided by the host.
      */

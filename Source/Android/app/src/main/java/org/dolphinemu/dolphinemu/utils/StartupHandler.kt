@@ -12,6 +12,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.preference.PreferenceManager
 import org.dolphinemu.dolphinemu.NativeLibrary
 import org.dolphinemu.dolphinemu.activities.EmulationActivity
+import org.dolphinemu.dolphinemu.ui.main.MainPresenter
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -20,19 +21,28 @@ object StartupHandler {
 
     @JvmStatic
     fun HandleInit(parent: FragmentActivity) {
-        // Ask the user if he wants to enable analytics if we haven't yet.
-        Analytics.checkAnalyticsInit(parent)
-
         // Set up and/or sync Android TV channels
         if (TvUtil.isLeanback(parent)) {
             TvUtil.scheduleSyncingChannel(parent)
         }
 
         val gamesToLaunch = getGamesFromIntent(parent.intent)
-        if (gamesToLaunch != null && gamesToLaunch.isNotEmpty()) {
-            // Start the emulation activity, send the ISO passed in and finish the main activity
-            EmulationActivity.launch(parent, gamesToLaunch, false, true)
+        val movieToLaunch = getMovieFromIntent(parent.intent)
+        if (!gamesToLaunch.isNullOrEmpty() || !movieToLaunch.isNullOrEmpty()) {
+            // Start the emulation activity, send the ISO and optional movie passed in and finish the main activity
+            MainPresenter.skipRescanningLibrary()
+            EmulationActivity.launch(
+                parent,
+                gamesToLaunch ?: emptyArray(),
+                false,
+                true,
+                movieToLaunch
+            )
+            return
         }
+
+        // Ask the user if he wants to enable analytics if we haven't yet.
+        Analytics.checkAnalyticsInit(parent)
     }
 
     private fun getGamesFromIntent(intent: Intent): Array<String>? {
@@ -78,6 +88,13 @@ object StartupHandler {
 
         // Nothing was found
         return null
+    }
+
+    private fun getMovieFromIntent(intent: Intent): String? {
+        val extras: Bundle = intent.extras ?: return null
+        val movie = extras.getString("AutoStartMovie")
+            ?: extras.getString(EmulationActivity.EXTRA_MOVIE_PATH)
+        return if (!TextUtils.isEmpty(movie)) movie else null
     }
 
     private fun getSessionTimestamp(context: Context): Instant {

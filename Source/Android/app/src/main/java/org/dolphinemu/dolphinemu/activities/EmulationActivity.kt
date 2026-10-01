@@ -64,8 +64,10 @@ import org.dolphinemu.dolphinemu.ui.main.ThemeProvider
 import org.dolphinemu.dolphinemu.utils.AfterDirectoryInitializationRunner
 import org.dolphinemu.dolphinemu.utils.DirectoryInitialization
 import org.dolphinemu.dolphinemu.utils.FileBrowserHelper
+import org.dolphinemu.dolphinemu.utils.MovieUtils
 import org.dolphinemu.dolphinemu.utils.RateLimiter
 import org.dolphinemu.dolphinemu.utils.ThemeHelper
+import java.io.File
 import kotlin.math.roundToInt
 
 class EmulationActivity : AppCompatActivity(), ThemeProvider {
@@ -81,6 +83,8 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
     private var paths: Array<String>? = null
     private var riivolution = false
     private var launchSystemMenu = false
+    private var moviePath: String? = null
+    private var pendingRestartMoviePath: String? = null
     private var menuToastShown = false
 
     private var skylanderData = Skylander(-1, -1, "Slot")
@@ -94,6 +98,14 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
 
     private val refreshInputOverlayRateLimiter = RateLimiter(Handler(Looper.getMainLooper()), 100) {
         emulationFragment?.refreshInputOverlay()
+    }
+
+    val requestOpenMovie = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            handleSelectedMovie(uri)
+        }
     }
 
     private val requestChangeDisc = registerForActivityResult(
@@ -200,6 +212,7 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
             paths = intent.getStringArrayExtra(EXTRA_SELECTED_GAMES)
             riivolution = intent.getBooleanExtra(EXTRA_RIIVOLUTION, false)
             launchSystemMenu = intent.getBooleanExtra(EXTRA_SYSTEM_MENU, false)
+            moviePath = intent.getStringExtra(EXTRA_MOVIE_PATH)
             hasUserPausedEmulation =
                 intent.getBooleanExtra(EXTRA_USER_PAUSED_EMULATION, false)
             menuToastShown = false
@@ -224,7 +237,7 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
         emulationFragment = supportFragmentManager
             .findFragmentById(R.id.frame_emulation_fragment) as EmulationFragment?
         if (emulationFragment == null) {
-            emulationFragment = EmulationFragment.newInstance(paths, riivolution, launchSystemMenu)
+            emulationFragment = EmulationFragment.newInstance(paths, riivolution, launchSystemMenu, moviePath)
             supportFragmentManager.beginTransaction()
                 .add(R.id.frame_emulation_fragment, emulationFragment!!)
                 .commit()
@@ -270,6 +283,7 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
             putInt(EXTRA_INFINITY_POSITION, infinityPosition)
             putLong(EXTRA_INFINITY_NUM, infinityFigureData.number)
             putString(EXTRA_INFINITY_NAME, infinityFigureData.name)
+            putString(EXTRA_MOVIE_PATH, moviePath)
         }
         super.onSaveInstanceState(outState)
     }
@@ -277,6 +291,7 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
     fun restoreState(savedInstanceState: Bundle) {
         savedInstanceState.apply {
             paths = getStringArray(EXTRA_SELECTED_GAMES)
+            moviePath = getString(EXTRA_MOVIE_PATH)
             hasUserPausedEmulation = getBoolean(EXTRA_USER_PAUSED_EMULATION)
             menuToastShown = savedInstanceState.getBoolean(EXTRA_MENU_TOAST_SHOWN)
             skylanderSlot = savedInstanceState.getInt(EXTRA_SKYLANDER_SLOT)
@@ -348,6 +363,13 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
     override fun onDestroy() {
         super.onDestroy()
         settings.close()
+
+        val movieToRestart = pendingRestartMoviePath
+        pendingRestartMoviePath = null
+        if (movieToRestart != null && paths != null) {
+            stopIgnoringLaunchRequests()
+            launch(this, paths!!, riivolution, moviePath = movieToRestart)
+        }
     }
 
     override fun onBackPressed() {
@@ -524,8 +546,94 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
             MENU_ACTION_SETTINGS -> SettingsActivity.launch(this, MenuTag.SETTINGS)
             MENU_ACTION_SKYLANDERS -> showSkylanderPortalSettings()
             MENU_ACTION_INFINITY_BASE -> showInfinityBaseSettings()
+            MENU_ACTION_START_RECORDING_MOVIE -> startRecordingMovie()
+            MENU_ACTION_STOP_RECORDING_MOVIE -> stopRecordingMovie()
+            MENU_ACTION_PLAY_MOVIE -> MovieUtils.showMoviePicker(
+                this,
+                { path -> handleSelectedMoviePath(path) },
+                { requestOpenMovie.launch(arrayOf("*/*")) }
+            )
+            MENU_ACTION_STOP_MOVIE -> stopMovie()
             MENU_ACTION_EXIT -> emulationFragment!!.stopEmulation()
             MENU_ACTION_RESET -> emulationFragment!!.resetEmulation()
+        }
+    }
+
+    private fun startRecordingMovie() {
+        val success = NativeLibrary.StartRecordingMovie()
+        if (success) {
+            Toast.makeText(this, R.string.movie_recording_started, Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, R.string.movie_recording_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun stopRecordingMovie() {
+        val gameId = NativeLibrary.GetCurrentGameID()
+        val moviesDir = MovieUtils.getMoviesDirectory()
+        val fileName = MovieUtils.generateMovieFileName(if (gameId.isNotEmpty()) gameId else "movie")
+        val file = File(moviesDir, fileName)
+        NativeLibrary.StopRecordingMovie(file.absolutePath)
+        Toast.makeText(this, getString(R.string.movie_recording_saved, file.name), Toast.LENGTH_LONG).show()
+    }
+
+    private fun stopMovie() {
+        NativeLibrary.StopMovie()
+    }
+
+    private fun handleSelectedMovie(uri: Uri) {
+        val resolvedPath = MovieUtils.resolveMovieUri(this, uri)
+        if (resolvedPath == null) {
+            Toast.makeText(this, R.string.movie_playback_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+        handleSelectedMoviePath(resolvedPath)
+    }
+
+    private fun handleSelectedMoviePath(resolvedPath: String) {
+        val error = MovieUtils.validateMovie(resolvedPath)
+        if (error != null) {
+            Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val currentGameId = NativeLibrary.GetCurrentGameID()
+        val movieGameId = NativeLibrary.GetMovieGameID(resolvedPath)
+        if (!movieGameId.isNullOrEmpty() && currentGameId.isNotEmpty() &&
+            !movieGameId.equals(currentGameId, ignoreCase = true)
+        ) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.emulation_play_movie)
+                .setMessage(getString(R.string.movie_game_mismatch, movieGameId, currentGameId))
+                .setPositiveButton(R.string.continue_anyway) { _, _ ->
+                    applyMoviePlayback(resolvedPath)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+            return
+        }
+
+        applyMoviePlayback(resolvedPath)
+    }
+
+    private fun applyMoviePlayback(moviePath: String) {
+        if (NativeLibrary.IsMovieFromSavestate(moviePath)) {
+            val success = NativeLibrary.PlayMovie(moviePath)
+            if (success) {
+                Toast.makeText(this, R.string.movie_playback_started, Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, R.string.movie_playback_failed, Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.movie_restart_required_title)
+                .setMessage(R.string.movie_restart_required_message)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    pendingRestartMoviePath = moviePath
+                    emulationFragment?.stopEmulation()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
         }
     }
 
@@ -1086,6 +1194,11 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
         const val MENU_ACTION_INFINITY_BASE = 37
         const val MENU_ACTION_LATCHING_CONTROLS = 38
         const val MENU_ACTION_RESET = 39;
+        const val MENU_ACTION_START_RECORDING_MOVIE = 40
+        const val MENU_ACTION_STOP_RECORDING_MOVIE = 41
+        const val MENU_ACTION_PLAY_MOVIE = 42
+        const val MENU_ACTION_STOP_MOVIE = 43
+        const val EXTRA_MOVIE_PATH = "MoviePath"
 
         init {
             buttonsActionsMap.apply {
@@ -1103,26 +1216,65 @@ class EmulationActivity : AppCompatActivity(), ThemeProvider {
         }
 
         @JvmStatic
-        fun launch(activity: FragmentActivity, filePaths: Array<String>, riivolution: Boolean, fromIntent: Boolean = false) {
+        @JvmOverloads
+        fun launch(
+            activity: FragmentActivity,
+            filePaths: Array<String>,
+            riivolution: Boolean,
+            fromIntent: Boolean = false,
+            moviePath: String? = null
+        ) {
             if (ignoreLaunchRequests)
                 return
 
-            performLaunchChecks(activity, fromIntent) { launchWithoutChecks(activity, filePaths, riivolution) }
+            performLaunchChecks(activity, fromIntent) {
+                launchWithoutChecks(activity, filePaths, riivolution, moviePath)
+            }
         }
 
         @JvmStatic
-        fun launch(activity: FragmentActivity, filePath: String, riivolution: Boolean, fromIntent: Boolean = false) =
-            launch(activity, arrayOf(filePath), riivolution, fromIntent)
+        @JvmOverloads
+        fun launch(
+            activity: FragmentActivity,
+            filePath: String,
+            riivolution: Boolean,
+            fromIntent: Boolean = false,
+            moviePath: String? = null
+        ) = launch(activity, arrayOf(filePath), riivolution, fromIntent, moviePath)
 
         private fun launchWithoutChecks(
             activity: FragmentActivity,
             filePaths: Array<String>,
-            riivolution: Boolean
+            riivolution: Boolean,
+            moviePath: String? = null
         ) {
+            val resolvedMoviePath = if (moviePath != null) {
+                val resolved = MovieUtils.resolveMovieInput(activity, moviePath)
+                if (resolved == null) {
+                    Toast.makeText(activity, R.string.movie_playback_failed, Toast.LENGTH_LONG).show()
+                    return
+                }
+                val error = MovieUtils.validateMovie(resolved)
+                if (error != null) {
+                    Toast.makeText(activity, error, Toast.LENGTH_LONG).show()
+                    return
+                }
+                resolved
+            } else {
+                null
+            }
+            val resolvedGamePaths = MovieUtils.resolveGamePaths(filePaths, resolvedMoviePath)
+            if (resolvedGamePaths.isEmpty()) {
+                Toast.makeText(activity, R.string.movie_playback_failed, Toast.LENGTH_LONG).show()
+                return
+            }
             ignoreLaunchRequests = true
             val launcher = Intent(activity, EmulationActivity::class.java)
-            launcher.putExtra(EXTRA_SELECTED_GAMES, filePaths)
+            launcher.putExtra(EXTRA_SELECTED_GAMES, resolvedGamePaths)
             launcher.putExtra(EXTRA_RIIVOLUTION, riivolution)
+            if (resolvedMoviePath != null) {
+                launcher.putExtra(EXTRA_MOVIE_PATH, resolvedMoviePath)
+            }
             activity.startActivity(launcher)
         }
 

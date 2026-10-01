@@ -281,7 +281,7 @@ bool MovieManager::IsJustStartingRecordingInputFromSaveState() const
 
 bool MovieManager::IsJustStartingPlayingInputFromSaveState() const
 {
-  return IsRecordingInputFromSaveState() && m_current_frame == 1 && IsPlayingInput();
+  return IsRecordingInputFromSaveState() && m_current_frame <= 1 && IsPlayingInput();
 }
 
 bool MovieManager::IsPlayingInput() const
@@ -456,6 +456,7 @@ bool MovieManager::BeginRecordingInput(const ControllerTypeArray& controllers,
   m_controllers = controllers;
   m_wiimotes = wiimotes;
   m_current_frame = m_total_frames = 0;
+  m_current_byte = 0;
   m_current_lag_count = m_total_lag_count = 0;
   m_current_input_count = m_total_input_count = 0;
   m_total_tick_count = m_tick_count_at_last_input = 0;
@@ -936,6 +937,8 @@ void MovieManager::DoState(PointerWrap& p)
   p.Do(m_current_input_count);
   p.Do(m_polled);
   p.Do(m_tick_count_at_last_input);
+  if (p.IsReadMode() && m_current_frame == 0 && m_current_input_count == 0)
+    m_current_byte = 0;
   // other variables (such as s_totalBytes and m_total_frames) are set in LoadInput
 }
 
@@ -1121,7 +1124,8 @@ void MovieManager::PlayController(GCPadStatus* PadStatus, int controllerID)
 {
   // Correct playback is entirely dependent on the emulator polling the controllers
   // in the same order done during recording
-  if (!IsPlayingInput() || !IsUsingPad(controllerID) || m_temp_input.empty())
+  if (!IsPlayingInput() || !IsUsingPad(controllerID) || m_temp_input.empty() ||
+      (m_recording_from_save_state && Core::GetState(m_system) == Core::State::Starting))
     return;
 
   if (m_current_byte + sizeof(ControllerState) > m_temp_input.size())
@@ -1211,7 +1215,8 @@ void MovieManager::PlayController(GCPadStatus* PadStatus, int controllerID)
 // NOTE: CPU Thread
 bool MovieManager::PlayWiimote(int wiimote, DesiredWiimoteState* desired_state)
 {
-  if (!IsPlayingInput() || !IsUsingWiimote(wiimote) || m_temp_input.empty())
+  if (!IsPlayingInput() || !IsUsingWiimote(wiimote) || m_temp_input.empty() ||
+      (m_recording_from_save_state && Core::GetState(m_system) == Core::State::Starting))
     return false;
 
   if (m_current_byte + sizeof(u8) > m_temp_input.size())

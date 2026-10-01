@@ -534,6 +534,7 @@
     <!-- Game Properties Screen -->
     <string name="properties_details">Details</string>
     <string name="properties_start_with_riivolution">Start with Riivolution Patches</string>
+    <string name="properties_play_movie">Play Input Recording (.dtm)</string>
     <string name="properties_set_default_iso">Set as Default ISO</string>
     <string name="properties_convert">Convert File</string>
     <string name="properties_system_update">Perform System Update</string>
@@ -628,6 +629,23 @@ It can efficiently compress both junk data and encrypted Wii data.
     <string name="pause_emulation">Pause Emulation</string>
     <string name="unpause_emulation">Unpause Emulation</string>
     <string name="emulation_screenshot">Take Screenshot</string>
+    <string name="emulation_start_recording_movie">Start Recording Input</string>
+    <string name="emulation_stop_recording_movie">Stop Recording Input</string>
+    <string name="emulation_play_movie">Play Input Recording…</string>
+    <string name="emulation_stop_movie">Stop Playing Input</string>
+    <string name="movie_recording_started">Recording input to .dtm</string>
+    <string name="movie_recording_saved">Recording saved: %1$s</string>
+    <string name="movie_recording_failed">Failed to start recording</string>
+    <string name="movie_playback_started">Playing input recording</string>
+    <string name="movie_playback_failed">Failed to load movie recording</string>
+    <string name="movie_game_mismatch">Recorded game (%1$s) does not match target game (%2$s)</string>
+    <string name="movie_restart_required_title">Restart Emulation?</string>
+    <string name="movie_restart_required_message">This recording starts from bootup. Emulation will restart to play it.</string>
+    <string name="movie_choose">Choose Recording</string>
+    <string name="movie_browse">Browse…</string>
+    <string name="movie_none_found">No recordings found</string>
+    <string name="movie_invalid">This is not a valid .dtm recording, or it is empty</string>
+    <string name="movie_missing_savestate">This recording starts from a savestate, but its .dtm.sav file is missing</string>
     <string name="emulation_savestate">Save State</string>
     <string name="emulation_loadstate">Load State</string>
     <string name="emulation_reset">Reset Emulation</string>

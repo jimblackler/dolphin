@@ -82,6 +82,28 @@
                 android:visibility="gone" />
 
             <Button
+                android:id="@+id/menu_start_recording_movie"
+                style="@style/InGameMenuOption"
+                android:text="@string/emulation_start_recording_movie" />
+
+            <Button
+                android:id="@+id/menu_stop_recording_movie"
+                style="@style/InGameMenuOption"
+                android:text="@string/emulation_stop_recording_movie"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/menu_play_movie"
+                style="@style/InGameMenuOption"
+                android:text="@string/emulation_play_movie" />
+
+            <Button
+                android:id="@+id/menu_stop_movie"
+                style="@style/InGameMenuOption"
+                android:text="@string/emulation_stop_movie"
+                android:visibility="gone" />
+
+            <Button
                 android:id="@+id/menu_settings"
                 style="@style/InGameMenuOption"
                 android:text="@string/grid_menu_settings" />

@@ -7,10 +7,13 @@ import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
 import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.FragmentActivity
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.dolphinemu.dolphinemu.DolphinApplication
+import org.dolphinemu.dolphinemu.NativeLibrary
 import org.dolphinemu.dolphinemu.R
 import org.dolphinemu.dolphinemu.activities.ConvertActivity
+import org.dolphinemu.dolphinemu.activities.EmulationActivity
 import org.dolphinemu.dolphinemu.features.cheats.ui.CheatsActivity
 import org.dolphinemu.dolphinemu.features.riivolution.ui.RiivolutionBootActivity
 import org.dolphinemu.dolphinemu.features.settings.model.Settings
@@ -23,6 +26,7 @@ import org.dolphinemu.dolphinemu.ui.platform.Platform
 import org.dolphinemu.dolphinemu.utils.AlertDialogItemsBuilder
 import org.dolphinemu.dolphinemu.utils.DirectoryInitialization
 import org.dolphinemu.dolphinemu.utils.Log
+import org.dolphinemu.dolphinemu.utils.MovieUtils
 import java.io.File
 
 class GamePropertiesDialog : DialogFragment() {
@@ -58,6 +62,15 @@ class GamePropertiesDialog : DialogFragment() {
                     settings.saveSettings()
                 }
             }
+        }
+
+        itemsBuilder.add(R.string.properties_play_movie) { _, _ ->
+            // This dialog is dismissed as soon as an item is clicked, so everything from here on
+            // must be scoped to the activity rather than this fragment.
+            val activity = requireActivity()
+            MovieUtils.showMoviePicker(activity, { moviePath ->
+                launchWithMovie(activity, path, gameId, moviePath)
+            }, null)
         }
 
         if (shouldAllowConversion) {
@@ -156,6 +169,35 @@ class GamePropertiesDialog : DialogFragment() {
         const val ARG_DISC_NUMBER = "disc_number"
         private const val ARG_PLATFORM = "platform"
         private const val ARG_SHOULD_ALLOW_CONVERSION = "should_allow_conversion"
+
+        private fun launchWithMovie(
+            activity: FragmentActivity,
+            gamePath: String,
+            gameId: String,
+            moviePath: String
+        ) {
+            val error = MovieUtils.validateMovie(moviePath)
+            if (error != null) {
+                Toast.makeText(activity, error, Toast.LENGTH_LONG).show()
+                return
+            }
+
+            val movieGameId = NativeLibrary.GetMovieGameID(moviePath)
+            if (!movieGameId.isNullOrEmpty() && gameId.isNotEmpty() &&
+                !movieGameId.equals(gameId, ignoreCase = true)
+            ) {
+                MaterialAlertDialogBuilder(activity)
+                    .setTitle(R.string.properties_play_movie)
+                    .setMessage(activity.getString(R.string.movie_game_mismatch, movieGameId, gameId))
+                    .setPositiveButton(R.string.continue_anyway) { _, _ ->
+                        EmulationActivity.launch(activity, gamePath, false, moviePath = moviePath)
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            } else {
+                EmulationActivity.launch(activity, gamePath, false, moviePath = moviePath)
+            }
+        }
 
         @JvmStatic
         fun newInstance(gameFile: GameFile?): GamePropertiesDialog {

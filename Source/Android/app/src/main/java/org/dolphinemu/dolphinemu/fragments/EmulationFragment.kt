@@ -35,6 +35,7 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
     private var runWhenSurfaceIsValid = false
     private var loadPreviousTemporaryState = false
     private var launchSystemMenu = false
+    private var moviePath: String? = null
 
     private var emulationActivity: EmulationActivity? = null
 
@@ -60,6 +61,7 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
             gamePaths = getStringArray(KEY_GAMEPATHS)
             riivolution = getBoolean(KEY_RIIVOLUTION)
             launchSystemMenu = getBoolean(KEY_SYSTEM_MENU)
+            moviePath = getString(KEY_MOVIE_PATH)
         }
     }
 
@@ -220,14 +222,15 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
                 // when a game starts due to orientation changes caused by a mismatch in menu
                 // vs emulation activity orientations.
                 val netplaySession = NetplayManager.activeSession
-                if (loadPreviousTemporaryState && netplaySession?.isLaunching != true) {
+                if (loadPreviousTemporaryState && netplaySession?.isLaunching != true &&
+                    File(temporaryStateFilePath).exists()
+                ) {
                     Log.debug("[EmulationFragment] Starting emulation thread from previous state.")
                     val paths = requireNotNull(gamePaths) {
                         "Cannot start emulation without any game paths"
                     }
                     NativeLibrary.Run(paths, riivolution, temporaryStateFilePath, true)
-                }
-                if (launchSystemMenu) {
+                } else if (launchSystemMenu) {
                     Log.debug("[EmulationFragment] Starting emulation thread for the Wii Menu.")
                     NativeLibrary.RunSystemMenu()
                 } else if (netplaySession?.isLaunching == true) {
@@ -248,6 +251,12 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
                         riivolution,
                         netplaySession.consumeBootSessionData()
                     )
+                } else if (!moviePath.isNullOrEmpty()) {
+                    Log.debug("[EmulationFragment] Starting emulation thread for Movie.")
+                    val paths = requireNotNull(gamePaths) {
+                        "Cannot start emulation without any game paths"
+                    }
+                    NativeLibrary.RunMovie(paths, riivolution, moviePath!!)
                 } else {
                     Log.debug("[EmulationFragment] Starting emulation thread.")
                     val paths = requireNotNull(gamePaths) {
@@ -266,7 +275,11 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
         }
     }
 
-    fun saveTemporaryState() = NativeLibrary.SaveStateAs(temporaryStateFilePath)
+    fun saveTemporaryState() {
+        if (NativeLibrary.IsRunning()) {
+            NativeLibrary.SaveStateAs(temporaryStateFilePath)
+        }
+    }
 
     private val temporaryStateFilePath: String
         get() = "${requireContext().filesDir}${File.separator}temp.sav"
@@ -275,15 +288,20 @@ class EmulationFragment : Fragment(), SurfaceHolder.Callback {
         private const val KEY_GAMEPATHS = "gamepaths"
         private const val KEY_RIIVOLUTION = "riivolution"
         private const val KEY_SYSTEM_MENU = "systemMenu"
+        private const val KEY_MOVIE_PATH = "moviePath"
 
         fun newInstance(
-            gamePaths: Array<String>?, riivolution: Boolean, systemMenu: Boolean
+            gamePaths: Array<String>?,
+            riivolution: Boolean,
+            systemMenu: Boolean,
+            moviePath: String? = null
         ): EmulationFragment {
             val args = Bundle()
             args.apply {
                 putStringArray(KEY_GAMEPATHS, gamePaths)
                 putBoolean(KEY_RIIVOLUTION, riivolution)
                 putBoolean(KEY_SYSTEM_MENU, systemMenu)
+                putString(KEY_MOVIE_PATH, moviePath)
             }
             val fragment = EmulationFragment()
             fragment.arguments = args

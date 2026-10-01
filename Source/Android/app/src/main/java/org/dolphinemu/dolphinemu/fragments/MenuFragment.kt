@@ -126,6 +126,26 @@ class MenuFragment : Fragment(), View.OnClickListener {
         // will block the load and send a message to the screen.
         binding.menuQuickload.paint.isStrikeThruText = hardcoreEnabled
         binding.menuEmulationLoadRoot.paint.isStrikeThruText = hardcoreEnabled
+
+        val isRecording = NativeLibrary.IsRecordingMovie()
+        val isPlaying = NativeLibrary.IsPlayingMovie()
+        if (isRecording) {
+            binding.menuStartRecordingMovie.visibility = View.GONE
+            binding.menuStopRecordingMovie.visibility = View.VISIBLE
+            binding.menuPlayMovie.visibility = View.GONE
+            binding.menuStopMovie.visibility = View.GONE
+        } else if (isPlaying) {
+            binding.menuStartRecordingMovie.visibility = View.GONE
+            binding.menuStopRecordingMovie.visibility = View.GONE
+            binding.menuPlayMovie.visibility = View.GONE
+            binding.menuStopMovie.visibility = View.VISIBLE
+        } else {
+            binding.menuStartRecordingMovie.visibility = View.VISIBLE
+            binding.menuStopRecordingMovie.visibility = View.GONE
+            binding.menuPlayMovie.visibility = View.VISIBLE
+            binding.menuStopMovie.visibility = View.GONE
+        }
+        binding.menuPlayMovie.paint.isStrikeThruText = hardcoreEnabled
     }
 
     override fun onDestroyView() {
@@ -206,6 +226,22 @@ class MenuFragment : Fragment(), View.OnClickListener {
             buttonsActionsMap.append(
                 R.id.menu_infinity_base,
                 EmulationActivity.MENU_ACTION_INFINITY_BASE
+            )
+            buttonsActionsMap.append(
+                R.id.menu_start_recording_movie,
+                EmulationActivity.MENU_ACTION_START_RECORDING_MOVIE
+            )
+            buttonsActionsMap.append(
+                R.id.menu_stop_recording_movie,
+                EmulationActivity.MENU_ACTION_STOP_RECORDING_MOVIE
+            )
+            buttonsActionsMap.append(
+                R.id.menu_play_movie,
+                EmulationActivity.MENU_ACTION_PLAY_MOVIE
+            )
+            buttonsActionsMap.append(
+                R.id.menu_stop_movie,
+                EmulationActivity.MENU_ACTION_STOP_MOVIE
             )
         }
 
