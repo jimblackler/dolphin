@@ -104,6 +104,10 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
     enable_validation_layer = false;
   }
 
+  // Populate BackendInfo defaults first, as creating the instance may set
+  // bSupportsSettingObjectNames based on the available extensions.
+  VulkanContext::PopulateBackendInfo(&g_backend_info);
+
   // Create Vulkan instance, needed before we can create a surface, or enumerate devices.
   // We use this instance to fill in backend info, then re-use it for the actual device.
   bool enable_surface = wsi.type != WindowSystemType::Headless;
@@ -139,7 +143,6 @@ bool VideoBackend::Initialize(const WindowSystemInfo& wsi)
   }
 
   // Populate BackendInfo with as much information as we can at this point.
-  VulkanContext::PopulateBackendInfo(&g_backend_info);
   VulkanContext::PopulateBackendInfoAdapters(&g_backend_info, gpu_list);
 
   // We need the surface before we can create a device, as some parameters depend on it.
